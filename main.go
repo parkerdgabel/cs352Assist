@@ -1,22 +1,27 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // Lectura host location
-const LECTURA string = "@lec.cs.arizona.edu:"
-// CS352 lectura assignments paths
-const LECTURA_ASSIGNMENTS_PATHS string = "/home/cs352/spring19/assignments/"
+const Lectura string = "@lec.cs.arizona.edu:"
+
+// LecturaAssignmentPath is the path to the assignments directory for cs352 Spring 2019
+const LecturaAssignmentPath string = "/home/cs352/spring19/assignments/"
 
 func main() {
 	newProject := flag.NewFlagSet("new", flag.ExitOnError)
 	newProjectName := newProject.String("name", "", "The name of the new project(must be of the form assg*)")
-	newProjectDestination := newProject.String("dest", "", "Filepath to new project(defaults to current directory)")
+	newProjectDestination := newProject.String("dest", "./", "Filepath to new project(defaults to current directory)")
+	copyProject := flag.NewFlagSet("copy", flag.ExitOnError)
+	copyProjectDestination := copyProject.String("dest", "", "Destination on lectura to copy the project.")
 	if len(os.Args) < 2 {
 		newProject.Usage()
 		os.Exit(1)
@@ -24,6 +29,11 @@ func main() {
 	switch command := os.Args[1]; command {
 	case "new":
 		err := newProject.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatal(err)
+		}
+	case "copy":
+		err := copyProject.Parse(os.Args[2:])
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -37,28 +47,62 @@ func main() {
 			newProject.PrintDefaults()
 			os.Exit(1)
 		}
-		createNewProject(*newProjectName, *newProjectDestination)
+		CreateNewProject(*newProjectName, *newProjectDestination)
+	} else if copyProject.Parsed() {
+		CopyProject(*copyProjectDestination)
 	}
 }
 
-// GetUserNameAndPassword gets the users netid and password for lectura
-func getUserNameAndPassword() (string, string) {
-	reader := bufio.NewReader(os.Stdin)
+// GetUserName gets the users netid for lectura
+func GetUserName() string {
+	var netID string
+	if netID = os.Getenv("LECTURA_USERNAME"); netID != "" {
+		return netID
+	}
 	fmt.Print("NetID: ")
-	netId, err := reader.ReadString('\n')
+	_, err := fmt.Scanf("%s", &netID)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Print("Password: ")
-	password, err := reader.ReadString('\n')
-	if err != nil {
-		log.Fatal(err)
-	}
-	return netId, password
+	return netID
 }
 
 // CreateNewProject attempts to create a new project on the users local machine.
 // It attempts to copy the assignment from /home/cs352/spring19/assignments/ on lectura
-func createNewProject(name string, dest string) {
+func CreateNewProject(name string, dest string) {
+	address := fmt.Sprintf("%s%s%s%s", GetUserName(), Lectura, LecturaAssignmentPath, name)
+	address = strings.TrimSuffix(address, "\n")
+	scp := exec.Command("scp", "-r", address, dest)
+	scp.Stdin = os.Stdin
+	scp.Stderr = os.Stderr
+	scp.Stdout = os.Stdout
+	err := scp.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 
+// CopyProject copies the project from local machine to lectura
+// Must be called from the assignment directory or subdirectories
+func CopyProject(destination string) {
+	copyPath, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !strings.Contains(filepath.Base(copyPath), "assg") {
+		copyPath = filepath.Dir(copyPath)
+		if !strings.Contains(filepath.Base(copyPath), "assg") {
+			log.Fatal("Copy must be done from the project directory or subdirectory. Please change your directory.")
+		}
+	}
+	lecturaAddress := fmt.Sprintf("%s%s%s", GetUserName(), Lectura, destination)
+	lecturaAddress = strings.TrimSuffix(lecturaAddress, "\n")
+	scp := exec.Command("scp", "-r", copyPath, lecturaAddress)
+	scp.Stdin = os.Stdin
+	scp.Stderr = os.Stderr
+	scp.Stdout = os.Stdout
+	err = scp.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
